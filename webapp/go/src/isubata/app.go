@@ -202,12 +202,29 @@ func register(name, password string) (int64, error) {
 
 // request handlers
 
+type ImageInfo struct {
+	Name string `db:"name"`
+	Data []byte `db:"data"`
+}
+
 func getInitialize(c echo.Context) error {
 	db.MustExec("DELETE FROM user WHERE id > 1000")
 	db.MustExec("DELETE FROM image WHERE id > 1001")
 	db.MustExec("DELETE FROM channel WHERE id > 10")
 	db.MustExec("DELETE FROM message WHERE id > 10000")
 	db.MustExec("DELETE FROM haveread")
+
+	images := []ImageInfo{}
+	err := db.Select(&images, "SELECT name, data FROM image")
+	if err != nil {
+		return err
+	}
+
+	for _, info := range images {
+		path := fmt.Sprintf("/isubata_public/icons/%v", info.Name)
+		ioutil.WriteFile(path, info.Data, 644)
+	}
+
 	return c.String(204, "")
 }
 
@@ -752,7 +769,7 @@ func main() {
 
 	e.GET("add_channel", getAddChannel)
 	e.POST("add_channel", postAddChannel)
-	e.GET("/icons/:file_name", getIcon)
+	// e.GET("/icons/:file_name", getIcon)
 
 	e.Start(":5000")
 }
