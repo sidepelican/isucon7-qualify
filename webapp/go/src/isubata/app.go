@@ -383,6 +383,11 @@ func jsonifyMessage(m Message) (map[string]interface{}, error) {
 	return r, nil
 }
 
+type JsonifyMessage struct {
+	Message Message `db:"m"`
+	User    User    `db:"u"`
+}
+
 func getMessage(c echo.Context) error {
 	userID := sessUserID(c)
 	if userID == 0 {
@@ -398,18 +403,29 @@ func getMessage(c echo.Context) error {
 		return err
 	}
 
-	messages, err := queryMessages(chanID, lastID)
+	messages := []JsonifyMessage{}
+	err = db.Select(&messages, `
+	SELECT m.id as "m.id", m.channel_id as "m.channel_id", m.user_id as "m.user_id", m.content as "m.content", m.created_at as "m.created_at", u.id as "u.id", u.name as "u.name", u.salt as "u.salt", u.password as "u.password", u.display_name as "u.display_name", u.avatar_icon as "u.avatar_icon", u.created_at as "u.created_at"
+	FROM message AS m 
+	LEFT JOIN user AS u ON m.user_id = u.id 
+	WHERE m.id > ? AND m.channel_id = ? 
+	ORDER BY m.id DESC LIMIT 100
+	`, lastID, chanID)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 
-	response := make([]map[string]interface{}, 0)
+	response := make([]map[string]interface{}, 0, len(messages))
 	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-		r, err := jsonifyMessage(m)
-		if err != nil {
-			return err
-		}
+		info := messages[i]
+
+		r := make(map[string]interface{})
+		r["id"] = info.Message.ID
+		r["user"] = info.User
+		r["date"] = info.Message.CreatedAt.Format("2006/01/02 15:04:05")
+		r["content"] = info.Message.Content
+
 		response = append(response, r)
 	}
 
@@ -417,7 +433,7 @@ func getMessage(c echo.Context) error {
 		_, err := db.Exec("INSERT INTO haveread (user_id, channel_id, message_id, updated_at, created_at)"+
 			" VALUES (?, ?, ?, NOW(), NOW())"+
 			" ON DUPLICATE KEY UPDATE message_id = ?, updated_at = NOW()",
-			userID, chanID, messages[0].ID, messages[0].ID)
+			userID, chanID, messages[0].Message.ID, messages[0].Message.ID)
 		if err != nil {
 			return err
 		}
